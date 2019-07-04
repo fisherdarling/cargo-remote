@@ -8,16 +8,15 @@ use log::{error, info, warn};
 
 use structopt::StructOpt;
 
-pub mod utils;
 pub mod config;
 pub mod error;
-
+pub mod utils;
 
 pub use config::Config;
 
 use error::Error;
 
-pub fn run_config(config: &Config) -> Result<(), Error> {
+pub fn run_config(config: Config) -> Result<(), Error> {
     let Config::Remote {
         remote,
         copy_back,
@@ -25,48 +24,23 @@ pub fn run_config(config: &Config) -> Result<(), Error> {
         hidden,
         command,
         options,
-    } = Config::from_args();
+    } = config;
 
     let project_metadata = utils::get_project_metadata(manifest_path)?;
 
     // for now, assume that there is only one project and find it's root directory
-    let (project_dir, project_name) = project_metadata.packages.first().map_or_else(
-        || {
-            error!("No project found.");
-            exit(-2);
-        },
-        |project| {
-            (
-                &project
-                    .manifest_path
-                    .parent()
-                    .ok_or(Error::CargoTomlNoParentError)?,
-                &project.name,
-            )
-        },
-    );
+    let project = project_metadata
+        .packages
+        .first()
+        .ok_or(Error::NoProjectFoundError)?;
+    
+    let project_dir = &project_metadata.workspace_root;
 
-    let configs = vec![
-        config_from_file(&project_dir.join(".cargo-remote.toml")),
-        xdg::BaseDirectories::with_prefix("cargo-remote")
-            .ok()
-            .and_then(|base| base.find_config_file("cargo-remote.toml"))
-            .and_then(|p: PathBuf| config_from_file(&p)),
-    ];
+    let project_name = &project.name;
 
     // TODO: move Opts::Remote fields into own type and implement complete_from_config(&mut self, config: &Value)
-    let build_server = remote
-        .or_else(|| {
-            configs
-                .into_iter()
-                .flat_map(|config| config.and_then(|c| c["remote"].as_str().map(String::from)))
-                .next()
-        })
-        .unwrap_or_else(|| {
-            error!("No remote build server was defined (use config file or --remote flag)");
-            exit(-3);
-        });
-
+    let build_server = remote.unwrap();
+    
     let build_path = format!("~/remote-builds/{}/", project_name);
 
     info!("Transferring sources to build server.");
@@ -90,17 +64,16 @@ pub fn run_config(config: &Config) -> Result<(), Error> {
         .arg(format!("{}:{}", build_server, build_path))
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .stdin(Stdio::inherit())
-        .output()
-        .unwrap_or_else(|e| {
-            error!("Failed to transfer project to build server (error: {})", e);
-            exit(-4);
-        });
+        .stdin(Stdio::inherit());
+
+    println!("Rsync commmand: {:?}", rsync_to);
+    
+    rsync_to.output()
+        .map_err(Error::TransferFilesError)?;
 
     let build_command = format!(
         "cd {}; $HOME/.cargo/bin/cargo {} {}",
-        build_path
-        project_name,
+        build_path,
         command,
         options.join(" ")
     );
@@ -114,10 +87,7 @@ pub fn run_config(config: &Config) -> Result<(), Error> {
         .stderr(Stdio::inherit())
         .stdin(Stdio::inherit())
         .output()
-        .unwrap_or_else(|e| {
-            error!("Failed to run cargo command remotely (error: {})", e);
-            exit(-5);
-        });
+        .map_err(Error::RunCargoCommandError)?;
 
     if copy_back {
         info!("Transferring artifacts back to client.");
@@ -132,12 +102,8 @@ pub fn run_config(config: &Config) -> Result<(), Error> {
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
             .output()
-            .unwrap_or_else(|e| {
-                error!(
-                    "Failed to transfer target back to local machine (error: {})",
-                    e
-                );
-                exit(-6);
-            });
+            .map_err(Error::TransferFilesError)?;
     }
+
+    Ok(())
 }
