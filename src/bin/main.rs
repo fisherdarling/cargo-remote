@@ -1,51 +1,11 @@
+use cargo_remote::Config;
+
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
 
-use structopt::StructOpt;
 use toml::Value;
 
 use log::{error, info, warn};
-
-#[derive(StructOpt, Debug)]
-#[structopt(name = "cargo-remote", bin_name = "cargo")]
-enum Opts {
-    #[structopt(name = "remote")]
-    Remote {
-        #[structopt(short = "r", long = "remote", help = "remote ssh build server")]
-        remote: Option<String>,
-
-        #[structopt(
-            short = "c",
-            long = "copy-back",
-            help = "transfer the target folder back to the local machine"
-        )]
-        copy_back: bool,
-
-        #[structopt(
-            long = "manifest-path",
-            help = "Path to the manifest to execute",
-            default_value = "Cargo.toml",
-            parse(from_os_str)
-        )]
-        manifest_path: PathBuf,
-
-        #[structopt(
-            short = "h",
-            long = "transfer-hidden",
-            help = "transfer hidden files and directories to the build server"
-        )]
-        hidden: bool,
-
-        #[structopt(help = "cargo command that will be executed remotely")]
-        command: String,
-
-        #[structopt(
-            help = "cargo options and flags that will be applied remotely",
-            name = "remote options"
-        )]
-        options: Vec<String>,
-    },
-}
 
 /// Tries to parse the file [`config_path`]. Logs warnings and returns [`None`] if errors occur
 /// during reading or parsing, [`Some(Value)`] otherwise.
@@ -77,20 +37,16 @@ fn config_from_file(config_path: &Path) -> Option<Value> {
 fn main() {
     simple_logger::init().unwrap();
 
-    let Opts::Remote {
+    let Config::Remote {
         remote,
         copy_back,
         manifest_path,
         hidden,
         command,
         options,
-    } = Opts::from_args();
+    } = Config::from_args();
 
-    let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
-    metadata_cmd.manifest_path(manifest_path);
-
-    let project_metadata = metadata_cmd.exec().unwrap();
-
+  
     // for now, assume that there is only one project and find it's root directory
     let (project_dir, project_name) = project_metadata.packages.first().map_or_else(
         || {
@@ -99,7 +55,8 @@ fn main() {
         },
         |project| {
             (
-                project.manifest_path
+                project
+                    .manifest_path
                     .as_path()
                     .parent()
                     .expect("Cargo.toml seems to have no parent directory?"),
@@ -149,10 +106,7 @@ fn main() {
         .arg("--rsync-path")
         .arg("mkdir -p remote-builds && rsync")
         .arg(format!("{}/", project_dir.to_string_lossy()))
-        .arg(format!(
-            "{}:{}",
-            build_server, build_path
-        ))
+        .arg(format!("{}:{}", build_server, build_path))
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .stdin(Stdio::inherit())
@@ -191,10 +145,7 @@ fn main() {
             .arg("--delete")
             .arg("--compress")
             .arg("--info=progress2")
-            .arg(format!(
-                "{}:{}/target/",
-                build_server, build_path
-            ))
+            .arg(format!("{}:{}/target/", build_server, build_path))
             .arg(format!("{}/target/", project_dir.to_string_lossy()))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
