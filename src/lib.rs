@@ -1,13 +1,6 @@
-use std::borrow::Borrow;
-use std::path::{Path, PathBuf};
-use std::process::{exit, Command, Stdio};
-
-use log::{error, info, warn};
-
-use toml::Value;
+use std::process::{Command, Stdio};
 
 use colored::*;
-use structopt::StructOpt;
 
 pub mod config;
 pub mod error;
@@ -16,10 +9,6 @@ pub mod utils;
 pub use config::Config;
 
 use error::Error;
-
-// fn print_indented<S: Borrow<str>>(string: S) {
-//     println!("    {}", string.borrow());
-// }
 
 pub fn run_config(config: Config) -> Result<(), Error> {
     let Config::Remote {
@@ -48,7 +37,6 @@ pub fn run_config(config: Config) -> Result<(), Error> {
     
     let build_path = format!("~/remote-builds/{}/", project_name);
 
-    // info!("Transferring sources to build server.");
     println!("    {}", "Transferring sources".green().bold()); //print_indented(format!("Transferring source to: {}", build_server).as_str());
 
     // transfer project to build server
@@ -85,7 +73,6 @@ pub fn run_config(config: Config) -> Result<(), Error> {
     println!("    {}", "Finished transferring sources".green().bold());
     println!("    {}\n", "Executing cargo command".green().bold());
 
-    // info!("Starting build process.");
     let status = Command::new("ssh")
         .args(&["-o", "LogLevel=QUIET"])
         .arg("-t")
@@ -97,21 +84,11 @@ pub fn run_config(config: Config) -> Result<(), Error> {
         .status()
         .map_err(Error::RunCargoCommandError)?;
 
-    match status.code() {
-        Some(code) => {
-            if status.success() {
-                println!("\n    {}: {}", "Exit code".green().bold(), code)
-            } else {
-                println!("\n    {}: {}", "Exit code".red().bold(), code)
-            }
-        },
-        None => println!("\n    {}", "Terminated by signal".green().bold()),
-    }
-
+    print_exit_status(status);
 
     if copy_back {
         println!("    {}", "Retrieving artifacts from server".green().bold());
-        // info!("Transferring artifacts back to client.");
+        
         Command::new("rsync")
             .arg("-a")
             .arg("--delete")
@@ -129,4 +106,17 @@ pub fn run_config(config: Config) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+fn print_exit_status(status: std::process::ExitStatus) {
+    match status.code() {
+        Some(code) => {
+            if status.success() {
+                println!("\n    {}: {}", "Exit code".green().bold(), code)
+            } else {
+                println!("\n    {}: {}", "Exit code".red().bold(), code)
+            }
+        },
+        None => println!("\n    {}", "Terminated by signal".green().bold()),
+    }
 }
