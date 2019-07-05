@@ -1,5 +1,8 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
+use std::process::Stdio;
 use structopt::StructOpt;
+
+use std::process::Command;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cargo-remote", bin_name = "cargo")]
@@ -34,4 +37,34 @@ pub enum Config {
         #[structopt(name = "remote options")]
         options: Vec<String>,
     },
+}
+
+
+impl Config {
+    pub fn rsync_to(&self, project_dir: &Path, build_server: &str, build_path: &str) -> Command {
+        let Config::Remote { hidden, .. } = self;
+        
+        let mut rsync_to = Command::new("rsync");
+        rsync_to
+            .arg("-a".to_owned())
+            .arg("--delete")
+            .arg("--info=progress2")
+            .arg("--exclude")
+            .arg("target");
+
+        if !hidden {
+            rsync_to.arg("--exclude").arg(".*");
+        }
+
+        rsync_to
+            .arg("--rsync-path")
+            .arg("mkdir -p remote-builds && rsync")
+            .arg(format!("{}/", project_dir.to_string_lossy()))
+            .arg(format!("{}:{}", build_server, build_path))
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .stdin(Stdio::inherit());
+
+        rsync_to
+    }
 }

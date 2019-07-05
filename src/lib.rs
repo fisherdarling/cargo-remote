@@ -10,7 +10,7 @@ pub use config::Config;
 
 use error::Error;
 
-pub fn run_config(config: Config) -> Result<(), Error> {
+pub fn run_config(config: &Config) -> Result<(), Error> {
     let Config::Remote {
         remote,
         copy_back,
@@ -33,35 +33,39 @@ pub fn run_config(config: Config) -> Result<(), Error> {
     let project_name = &project.name;
 
     // TODO: move Opts::Remote fields into own type and implement complete_from_config(&mut self, config: &Value)
-    let build_server = remote.unwrap();
+    let build_server = remote.clone().unwrap();
     
     let build_path = format!("~/remote-builds/{}/", project_name);
 
     println!("    {}", "Transferring sources".green().bold()); //print_indented(format!("Transferring source to: {}", build_server).as_str());
 
-    // transfer project to build server
-    let mut rsync_to = Command::new("rsync");
-    rsync_to
-        .arg("-a".to_owned())
-        .arg("--delete")
-        .arg("--info=progress2")
-        .arg("--exclude")
-        .arg("target");
-
-    if !hidden {
-        rsync_to.arg("--exclude").arg(".*");
-    }
-
-    rsync_to
-        .arg("--rsync-path")
-        .arg("mkdir -p remote-builds && rsync")
-        .arg(format!("{}/", project_dir.to_string_lossy()))
-        .arg(format!("{}:{}", build_server, build_path))
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .stdin(Stdio::inherit())
+    let rsync_to = config.rsync_to(project_dir, &build_server, &build_path)
         .output()
         .map_err(Error::TransferFilesError)?;
+    
+    // transfer project to build server
+    // let mut rsync_to = Command::new("rsync");
+    // rsync_to
+    //     .arg("-a".to_owned())
+    //     .arg("--delete")
+    //     .arg("--info=progress2")
+    //     .arg("--exclude")
+    //     .arg("target");
+
+    // if !hidden {
+    //     rsync_to.arg("--exclude").arg(".*");
+    // }
+
+    // rsync_to
+    //     .arg("--rsync-path")
+    //     .arg("mkdir -p remote-builds && rsync")
+    //     .arg(format!("{}/", project_dir.to_string_lossy()))
+    //     .arg(format!("{}:{}", build_server, build_path))
+    //     .stdout(Stdio::inherit())
+    //     .stderr(Stdio::inherit())
+    //     .stdin(Stdio::inherit())
+    //     .output()
+    //     .map_err(Error::TransferFilesError)?;
 
     let build_command = format!(
         "cd {}; $HOME/.cargo/bin/cargo {} {}",
@@ -86,7 +90,7 @@ pub fn run_config(config: Config) -> Result<(), Error> {
 
     print_exit_status(status);
 
-    if copy_back {
+    if *copy_back {
         println!("    {}", "Retrieving artifacts from server".green().bold());
         
         Command::new("rsync")

@@ -7,7 +7,7 @@ use cargo_remote::{Config, run_config};
 fn main() {
     let config = Config::from_args();
 
-    std::process::exit(match run_config(config) {
+    std::process::exit(match run_config(&config) {
        Ok(_) => 0,
        Err(err) => {
            eprintln!("Encountered an error: {}", err);
